@@ -5,7 +5,6 @@ services:
   - type: web
     name: afl-live-tracker
     runtime: node
-    rootDir: backend
     plan: free
     buildCommand: npm install
     startCommand: npm start
