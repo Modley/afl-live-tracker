@@ -1,4 +1,4 @@
-\
+
 # Render "Blueprint" — lets Render auto-configure everything below in one go
 # via New + -> Blueprint, instead of setting each field by hand.
 services:
