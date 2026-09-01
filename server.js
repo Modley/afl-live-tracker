@@ -4,8 +4,8 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 
-const squiggle = require('./sources/squiggle');
-const { MockSource } = require('./sources/mock');
+const squiggle = require('./squiggle');
+const { MockSource } = require('./mock');
 const { diffGame } = require('./eventEngine');
 
 const PORT = process.env.PORT || 4000;
@@ -141,8 +141,7 @@ app.get('/api/games/:id', (req, res) => {
 });
 
 // Serve the frontend as static files so the whole thing can run as one process.
-app.use(express.static(require('path').join(__dirname, '..', 'frontend')));
-
+app.use(express.static(__dirname));
 // ---- WebSocket wiring ------------------------------------------------------
 io.on('connection', (socket) => {
   socket.emit('game_list_update', publicGameList());
