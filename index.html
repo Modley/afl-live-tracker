@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AFL Live Tracker</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #121b2e;
+    --panel-2: #17223a;
+    --border: #263352;
+    --text: #eef2fb;
+    --muted: #8ea0c4;
+    --accent: #ff6b35;
+    --accent-2: #35c2ff;
+    --good: #33d17a;
+    --bad: #ff5470;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    letter-spacing: 0.3px;
+  }
+  header h1 span { color: var(--accent); }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--good); box-shadow: 0 0 0 3px rgba(51,209,122,0.15); }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(255,84,112,0.15); }
+  main {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 16px;
+    padding: 16px 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  @media (max-width: 800px) {
+    main { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  .game-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+  }
+  .game-row:hover { background: var(--panel-2); }
+  .game-row.active { background: var(--panel-2); border-color: var(--accent); }
+  .game-row .teams { font-size: 13px; }
+  .game-row .teams b { display: block; }
+  .game-row .score { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge.live { background: rgba(255,107,53,0.15); color: var(--accent); }
+  .badge.complete { background: rgba(142,160,196,0.15); color: var(--muted); }
+  .badge.scheduled { background: rgba(53,194,255,0.15); color: var(--accent-2); }
+  .empty { color: var(--muted); font-size: 13px; padding: 20px 8px; text-align: center; }
+
+  .scoreboard {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin-bottom: 16px;
+  }
+  .team-block { flex: 1; text-align: center; }
+  .team-block .name { font-size: 15px; color: var(--muted); margin-bottom: 6px; }
+  .team-block .score { font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .team-block .goals { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .clock {
+    text-align: center;
+    min-width: 140px;
+  }
+  .clock .q { font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; }
+  .clock .time { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .clock .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 6px; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .events {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 480px;
+    overflow-y: auto;
+  }
+  .events li {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    animation: slidein 0.25s ease;
+  }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .events li .txt { }
+  .events li.goal .txt { color: var(--accent); font-weight: 700; }
+  .events li .meta { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .events li:last-child { border-bottom: none; }
+  .footer-note {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 14px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>AFL <span>Live</span> Tracker</h1>
+  <div class="status">
+    <span class="dot" id="conn-dot"></span>
+    <span id="conn-text">Connecting…</span>
+  </div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Games</h2>
+    <div id="game-list"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section>
+    <div id="scoreboard-wrap"></div>
+    <div class="panel">
+      <h2>Live Feed</h2>
+      <ul class="events" id="event-list"><li class="empty" style="border:none;">Select a game to see live updates</li></ul>
+    </div>
+    <p class="footer-note" id="source-note"></p>
+  </section>
+</main>
+
+<script>
+const socket = io();
+let games = [];
+let activeGameId = null;
+let events = [];
+
+const connDot = document.getElementById('conn-dot');
+const connText = document.getElementById('conn-text');
+const gameListEl = document.getElementById('game-list');
+const scoreboardWrap = document.getElementById('scoreboard-wrap');
+const eventListEl = document.getElementById('event-list');
+const sourceNote = document.getElementById('source-note');
+
+socket.on('connect', () => {
+  connDot.className = 'dot ok';
+  connText.textContent = 'Connected';
+});
+socket.on('disconnect', () => {
+  connDot.className = 'dot bad';
+  connText.textContent = 'Disconnected — retrying…';
+});
+
+socket.on('source_status', (s) => {
+  const when = s.lastPollAt ? new Date(s.lastPollAt).toLocaleTimeString() : '—';
+  sourceNote.textContent = s.ok
+    ? \`Data source: \${s.dataSource} · last refreshed \${when}\`
+    : \`Data source: \${s.dataSource} · error fetching data: \${s.error} (last good refresh: \${when})\`;
+});
+
+socket.on('game_list_update', (list) => {
+  games = list.sort((a, b) => rank(a) - rank(b));
+  renderGameList();
+  if (activeGameId) renderScoreboard();
+});
+
+socket.on('game_update', ({ game }) => {
+  const idx = games.findIndex((g) => g.id === game.id);
+  if (idx >= 0) games[idx] = game; else games.push(game);
+  if (game.id === activeGameId) renderScoreboard();
+  renderGameList();
+});
+
+socket.on('events', ({ gameId, events: newEvents }) => {
+  if (gameId !== activeGameId) return;
+  events = events.concat(newEvents);
+  renderEvents();
+});
+
+socket.on('clock_tick', (tick) => {
+  if (tick.gameId !== activeGameId) return;
+  updateClockDisplay(tick);
+});
+
+function rank(g) {
+  if (g.status === 'live') return 0;
+  if (g.status === 'scheduled') return 1;
+  return 2;
+}
+
+function renderGameList() {
+  if (games.length === 0) {
+    gameListEl.innerHTML = '<div class="empty">No games tracked yet. Waiting for the first poll…</div>';
+    return;
+  }
+  gameListEl.innerHTML = games.map((g) => \`
+    <div class="game-row \${g.id === activeGameId ? 'active' : ''}" data-id="\${g.id}">
+      <div class="teams">
+        <b>\${g.home.team}</b>
+        <span style="color:var(--muted)">vs</span> \${g.away.team}
+      </div>
+      <div style="text-align:right">
+        <div class="score">\${g.home.score} – \${g.away.score}</div>
+        <span class="badge \${g.status}">\${g.status === 'live' ? (g.timeStr || 'Live') : g.status}</span>
+      </div>
+    </div>
+  \`).join('');
+
+  gameListEl.querySelectorAll('.game-row').forEach((el) => {
+    el.addEventListener('click', () => selectGame(el.dataset.id));
+  });
+}
+
+function selectGame(id) {
+  if (activeGameId) socket.emit('unsubscribe', activeGameId);
+  activeGameId = id;
+  events = [];
+  socket.emit('subscribe', id);
+  renderGameList();
+  renderScoreboard();
+  eventListEl.innerHTML = '<li class="empty" style="border:none;">Waiting for events…</li>';
+}
+
+function currentGame() {
+  return games.find((g) => g.id === activeGameId);
+}
+
+function renderScoreboard() {
+  const g = currentGame();
+  if (!g) { scoreboardWrap.innerHTML = ''; return; }
+  scoreboardWrap.innerHTML = \`
+    <div class="scoreboard">
+      <div class="team-block">
+        <div class="name">\${g.home.team}</div>
+        <div class="score" id="home-score">\${g.home.score}</div>
+        <div class="goals">\${g.home.goals ?? '—'} goals · \${g.home.behinds ?? '—'} behinds</div>
+      </div>
+      <div class="clock">
+        \${g.status === 'live' ? '<span class="live-dot"></span>' : ''}
+        <div class="q" id="clock-q">\${g.status === 'complete' ? 'Full Time' : (g.status === 'scheduled' ? 'Scheduled' : (g.timeStr || ''))}</div>
+        <div class="time" id="clock-time">\${g.status === 'live' ? '' : ''}</div>
+      </div>
+      <div class="team-block">
+        <div class="name">\${g.away.team}</div>
+        <div class="score" id="away-score">\${g.away.score}</div>
+        <div class="goals">\${g.away.goals ?? '—'} goals · \${g.away.behinds ?? '—'} behinds</div>
+      </div>
+    </div>
+  \`;
+}
+
+function updateClockDisplay(tick) {
+  const qEl = document.getElementById('clock-q');
+  const tEl = document.getElementById('clock-time');
+  if (!qEl || !tEl) return;
+  qEl.textContent = \`Q\${tick.quarter}\`;
+  // Interpolate: base time from last poll + seconds elapsed since then.
+  const match = /(\\d+):(\\d+)/.exec(tick.baseTimeStr || '');
+  if (match) {
+    const baseSec = parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+    const total = baseSec + tick.elapsedSecSincePoll;
+    const mm = Math.floor(total / 60);
+    const ss = String(total % 60).padStart(2, '0');
+    tEl.textContent = \`\${mm}:\${ss}\`;
+  } else {
+    tEl.textContent = tick.baseTimeStr || '';
+  }
+}
+
+function renderEvents() {
+  if (events.length === 0) {
+    eventListEl.innerHTML = '<li class="empty" style="border:none;">Waiting for events…</li>';
+    return;
+  }
+  const ordered = events.slice().reverse();
+  eventListEl.innerHTML = ordered.map((e) => \`
+    <li class="\${e.type}">
+      <span class="txt">\${escapeHtml(e.text)}</span>
+      <span class="meta">Q\${e.quarter ?? '-'} · \${e.scoreSnapshot.home}-\${e.scoreSnapshot.away}</span>
+    </li>
+  \`).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
